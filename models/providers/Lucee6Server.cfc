@@ -330,6 +330,27 @@ component accessors=true extends='cfconfig-services.models.BaseConfig' {
 			}
 		}
 
+		// Transform scheduledTasks to the expected format
+		if( configData.keyExists( 'scheduledTasks' ) ) {
+			// source is a struct of structs but lucee wants an array of structs
+			var transformedTasks = [];
+			for( var taskName in configData.scheduledTasks ) {
+				var task = configData.scheduledTasks[ taskName ];
+				var transformedTask = duplicate(task);
+				
+				renameKeys( transformedTask, [
+					"task,name",
+					"requestTimeout,timeout"
+				] );
+				translateDateToLucee( transformedTask, 'startDate' );
+				translateTimeToLucee( transformedTask, 'startTime' );
+				translateScheduledTaskStatusToLucee( transformedTask );
+	
+				transformedTasks.append(transformedTask);
+			}
+			configData.scheduledTasks = transformedTasks;
+		}
+
 		// Ensure the parent directories exist
 		directoryCreate( path=getDirectoryFromPath( configFilePath ), createPath=true, ignoreExists=true );
 		var existingData = {};
@@ -347,6 +368,71 @@ component accessors=true extends='cfconfig-services.models.BaseConfig' {
 		fileWrite( configFilePath, JSONPrettyPrint.formatJson( serializeJSON( existingData ) ) );
 
 		return this;
+	}
+
+	/**
+	 * Rename a key in a struct.
+	 *
+	 * @param item The item to apply the rename to.
+	 * @param oldKey The old key to be renamed.
+	 * @param newKey The new key to rename to.
+	 */
+	private void function renameKey( required struct item, required string oldKey, required string newKey ) {
+		if( item.keyExists( oldKey ) ) {
+			item[ newKey ] = item[ oldKey ];
+			item.delete( oldKey );
+		}
+	}
+
+	/**
+	 * Rename multiple keys in a struct.
+	 *
+	 * @param item The item to apply the renames to.
+	 * @param renamePairs An array of strings with old and new key pairs in the format "oldKey,newKey".
+	 */
+	private void function renameKeys( required struct item, required array renamePairs ) {
+		for( var pair in renamePairs ) {
+			var keys = pair.listToArray(",");
+			renameKey( item, keys[1], keys[2] );
+		}
+	}
+
+	/**
+	 * Translate a date field to Lucee format.
+	 *
+	 * @param item The item to apply the translation to.
+	 * @param dateKey The key for the date field.
+	 */
+	private void function translateDateToLucee( required struct item, required string dateKey ) {
+		if( item.keyExists( dateKey ) ) {
+			item[ dateKey ] = "{d '" & dateFormat( parseDateTime( item[ dateKey ] ), 'yyyy-mm-dd' ) & "'}";
+		}
+	}
+
+	/**
+	 * Translate the scheduled task `status` field to the `enabled` field.
+	 *
+	 * @param item The item to apply the translation to.
+	 * @param statusKey The key for the status field.
+	 * @param enabledKey The key for the enabled field.
+	 */
+	private void function translateScheduledTaskStatusToLucee( required struct task ) {
+		if( task.keyExists( "status" ) ) {
+			task[ "enabled" ] = ( task[ "status" ] == "Running" );
+			task.delete( "status" );
+		}
+	}
+
+	/**
+	 * Translate a time field to Lucee format.
+	 *
+	 * @param item The item to apply the translation to.
+	 * @param timeKey The key for the time field.
+	 */
+	private void function translateTimeToLucee( required struct item, required string timeKey ) {
+		if( item.keyExists( timeKey ) ) {
+			item[ timeKey ] = "{t '" & timeFormat( parseDateTime( item[ timeKey ] ), 'HH:mm:ss' ) & "'}";
+		}
 	}
 
 	function calculateConfigFilePath() {
